@@ -534,9 +534,9 @@ ax1.set_title(f'ROC Curve: {PREDITTORE} (dati raw)')
 ax1.legend(loc="lower right")
 ax1.grid(True, alpha=0.3)
 
-# %%
+# %% import log_reg_utilities
 
-from tesi_marghe.utils.log_reg import run_complete_logistic_analysis
+from tesi_marghe.utils.log_reg import run_complete_logistic_analysis, run_multivariate_logistic_analysis
 
 # %% Logistic Regression Analysis: AFI & Centro Studi vs Outcome 1
 
@@ -547,32 +547,6 @@ results_afi = run_complete_logistic_analysis(
     control_cols=['centro_studi'],
     target_col='outcome_1',
     analysis_name="AFI (adjusted for Centro Studi) vs Outcome 1",
-    print_results=False
-)
-
-# Odds ratios
-
-
-# Metriche ROC
-print(f"AUC: {results_afi['roc_metrics']['auc_score']:.3f}")
-
-# Risultati di sintesi per export
-print(results_afi['summary_results'])
-
-# Tabella dati ROC
-from tesi_marghe.utils.log_reg import create_roc_data_table
-roc_table = create_roc_data_table(results_afi['roc_metrics'])
-print(roc_table.head(10))
-
-# %% svr - casilino
-
-
-results_afi = run_complete_logistic_analysis(
-    data=data,
-    predictor_cols=['svr'],
-    control_cols=['centro_studi'],
-    target_col='outcome_1',
-    analysis_name="SVR (adjusted for Centro Studi) vs Outcome 1",
     print_results=False
 )
 
@@ -590,311 +564,188 @@ results_afi = run_complete_logistic_analysis(
 # roc_table = create_roc_data_table(results_afi['roc_metrics'])
 # print(roc_table.head(10))
 
-
-# %% Esempio di altre analisi che puoi fare
-
-# Analisi con un altro predittore
-# results_altra_var = run_complete_logistic_analysis(
-#     data=data,
-#     predictor_cols=['altra_variabile'],
-#     control_cols=['centro_studi'],
-#     target_col='outcome_1',
-#     analysis_name="Altra Variabile (adjusted for Centro Studi) vs Outcome 1"
-# )
-
-# Analisi con più predittori
-# results_multiple = run_complete_logistic_analysis(
-#     data=data,
-#     predictor_cols=['afi', 'altra_variabile'],
-#     control_cols=['centro_studi'],
-#     target_col='outcome_1',
-#     analysis_name="Multiple Predictors vs Outcome 1"
-# )
-
-# %% Accesso ai risultati
+# %% svr - 
 
 
-
-
-
-# %% Logistic Regression Analysis: AFI & Centro Studi vs Outcome 1
-
-# Select variables for logistic regression
-# regression_vars = ['afi', 'centro_studi', 'outcome_1']
-regression_vars = ['afi', 'centro_studi', 'outcome_1']
-
-# Prepare data for logistic regression
-regression_data = (
-    data
-    .select(regression_vars)
-    .drop_nulls()
-    .pipe(print_shape, label='Regression data after dropping nulls')
+results_afi = run_complete_logistic_analysis(
+    data=data,
+    predictor_cols=['svr'],
+    control_cols=['centro_studi'],
+    target_col='outcome_1',
+    analysis_name="SVR (adjusted for Centro Studi) vs Outcome 1",
+    print_results=False
 )
 
-print("Data summary:")
-print(regression_data.describe())
-print("\nOutcome distribution:")
-print(regression_data.group_by('outcome_1').agg(pl.len().alias('count')))
-print("\nCentro Studi distribution:")
-print(regression_data.group_by('centro_studi').agg(pl.len().alias('count')))
-
-# Convert to pandas for sklearn
-regression_df = regression_data.to_pandas()
-
-# Encode categorical variable (centro_studi) if it's not already numeric
-le = LabelEncoder()
-if regression_df['centro_studi'].dtype == 'object':
-    regression_df['centro_studi_encoded'] = le.fit_transform(regression_df['centro_studi'])
-    predictor_cols = ['afi', 'centro_studi_encoded']
-    centro_labels = dict(zip(le.transform(le.classes_), le.classes_))
-    print(f"\nCentro Studi encoding: {centro_labels}")
-else:
-    predictor_cols = ['afi', 'centro_studi']
-
-# Prepare features and target
-X = regression_df[predictor_cols]
-y = regression_df['outcome_1']
-
-# Standardize features for better interpretation
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
-
-# Fit logistic regression
-log_reg = LogisticRegression(random_state=42, max_iter=1000)
-log_reg.fit(X_scaled, y)
-
-# Calculate odds ratios
-# For standardized coefficients, OR = exp(coef)
-coefficients = log_reg.coef_[0]
-odds_ratios = np.exp(coefficients)
-
-# Calculate confidence intervals using the SCALED design matrix
-# This handles the case where centro_studi might be constant (e.g., only Casilino)
-try:
-    # Use scaled design matrix for proper variance calculation
-    X_scaled_df = pl.DataFrame(X_scaled, schema=predictor_cols)
-    
-    # Add intercept column for proper variance calculation
-    X_with_intercept = np.column_stack([np.ones(X_scaled.shape[0]), X_scaled])
-    
-    # Calculate variance-covariance matrix
-    from scipy import stats
-    import scipy.linalg as linalg
-    
-    # Get predicted probabilities
-    y_pred_proba = log_reg.predict_proba(X_scaled)[:, 1]
-    
-    # Calculate residuals
-    residuals = y - y_pred_proba
-    
-    # Calculate variance-covariance matrix
-    XtX_inv = linalg.inv(X_with_intercept.T @ X_with_intercept)
-    mse = np.sum(residuals**2) / (len(y) - len(coefficients) - 1)  # -1 for intercept
-    var_covar = mse * XtX_inv
-    
-    # Extract standard errors for coefficients (skip intercept)
-    se_coefficients = np.sqrt(np.diag(var_covar)[1:])  # Skip intercept
-    
-    # Calculate confidence intervals
-    ci_lower = np.exp(coefficients - 1.96 * se_coefficients)
-    ci_upper = np.exp(coefficients + 1.96 * se_coefficients)
-    
-except (linalg.LinAlgError, ValueError) as e:
-    print(f"Warning: Could not calculate confidence intervals due to singular matrix: {e}")
-    print("This may happen when filtering to a single center or with insufficient data variation.")
-    print("Proceeding with odds ratios only (no confidence intervals).")
-    
-    # Set confidence intervals to NaN
-    ci_lower = np.full_like(coefficients, np.nan)
-    ci_upper = np.full_like(coefficients, np.nan)
-
-# Create complete odds ratio table for reference
-complete_odds_ratio_df = pl.DataFrame({
-    'Variable': predictor_cols,
-    'Coefficient': coefficients,
-    'Odds_Ratio': odds_ratios,
-    'OR_CI_Lower': ci_lower,
-    'OR_CI_Upper': ci_upper,
-})
-
-# Create AFI-focused table (main result of interest)
-afi_odds_ratio_df = pl.DataFrame({
-    'Variable': [predictor_cols[0]],  # AFI is first predictor
-    'Coefficient': [coefficients[0]],
-    'Odds_Ratio': [odds_ratios[0]],
-    'OR_CI_Lower': [ci_lower[0]],
-    'OR_CI_Upper': [ci_upper[0]],
-})
-
-print("\n" + "="*60)
-print("LOGISTIC REGRESSION RESULTS")
-print("="*60)
-print(f"Model: AFI + Centro Studi (control variable) → Outcome 1")
-print(f"Note: Centro Studi included to control for confounding factors")
-print("\nPrimary Result - AFI Odds Ratio (95% CI):")
-print(afi_odds_ratio_df)
-
-print(f"\nAFI Odds Ratio: {odds_ratios[0]:.3f}")
-if not np.isnan(ci_lower[0]):
-    print(f"95% CI: {ci_lower[0]:.3f}-{ci_upper[0]:.3f}")
-    if odds_ratios[0] > 1:
-        print(f"→ Higher AFI values are associated with {odds_ratios[0]:.3f}x higher odds of Outcome 1")
-    else:
-        print(f"→ Higher AFI values are associated with {(1/odds_ratios[0]):.3f}x lower odds of Outcome 1")
-else:
-    print("95% CI: Could not be calculated (insufficient data variation)")
-    print(f"→ Odds ratio: {odds_ratios[0]:.3f} (interpret with caution)")
-
-# Complete results for reference
-print(f"\nComplete Model Results (for reference):")
-print(complete_odds_ratio_df)
-
-# %% ROC Curve Analysis for Logistic Regression
-%matplotlib inline
-
-# Get predicted probabilities
-y_pred_proba = log_reg.predict_proba(X_scaled)[:, 1]
-y_pred = log_reg.predict(X_scaled)
-
-# Calculate ROC curve
-fpr, tpr, thresholds = roc_curve(y, y_pred_proba)
-auc_score = roc_auc_score(y, y_pred_proba)
-u_stat, p_two_sided = mannwhitneyu(y, y_pred_proba, alternative='two-sided')
-
-# Create ROC curve plot
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-
-# ROC Curve
-# ROC Curve
-ax1.plot(fpr, tpr, color='blue', lw=2, label=f'ROC Curve (AUC = {auc_score:.3f}, p={p_two_sided:.4g})')
-ax1.plot([0, 1], [0, 1], color='red', lw=1, linestyle='--', alpha=0.7)
-ax1.set_xlim([0.0, 1.0])
-ax1.set_ylim([0.0, 1.05])
-ax1.set_xlabel('False Positive Rate (1 - Specificity)')
-ax1.set_ylabel('True Positive Rate (Sensitivity)')
-ax1.set_title('ROC Curve: AFI (adjusted for Centro Studi)')
-ax1.legend(loc="lower right")
-ax1.grid(True, alpha=0.3)
-
-# Odds Ratio Forest Plot - Only AFI (main result)
-if not np.isnan(ci_lower[0]):
-    ax2.errorbar([odds_ratios[0]], [0], 
-                xerr=[[odds_ratios[0] - ci_lower[0]], [ci_upper[0] - odds_ratios[0]]],
-                fmt='o', capsize=5, capthick=2, elinewidth=2, markersize=8, color='blue')
-    ci_text = f'OR = {odds_ratios[0]:.3f}\n(95% CI: {ci_lower[0]:.3f}-{ci_upper[0]:.3f})'
-else:
-    ax2.scatter([odds_ratios[0]], [0], s=100, color='blue', marker='o')
-    ci_text = f'OR = {odds_ratios[0]:.3f}\n(CI: Not available)'
-
-ax2.axvline(x=1, color='red', linestyle='--', alpha=0.7, label='No effect (OR=1)')
-ax2.set_yticks([0])
-ax2.set_yticklabels(['AFI\n(adjusted for Centro Studi)'])
-ax2.set_xlabel('Odds Ratio')
-ax2.set_title('AFI Odds Ratio with 95% Confidence Interval')
-ax2.grid(True, alpha=0.3)
-ax2.set_xscale('log')
-ax2.legend()
-
-# Add text with OR value
-ax2.text(odds_ratios[0], -0.1, ci_text, 
-         ha='center', va='top', fontsize=10, bbox=dict(boxstyle='round,pad=0.3', facecolor='lightblue', alpha=0.7))
+# %% pasc outcome 1
 
 
-# %% Performance Metrics Table
+results_afi = run_complete_logistic_analysis(
+    data=data,
+    predictor_cols=['pasc'],
+    control_cols=['centro_studi'],
+    target_col='outcome_1',
+    analysis_name="pasc (adjusted for Centro Studi) vs Outcome 1",
+    print_results=False
+)
 
-# Calculate additional metrics
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+# %% padc
 
-# Find optimal threshold using Youden's index
-youden_index = tpr - fpr
-optimal_idx = np.argmax(youden_index)
-optimal_threshold = thresholds[optimal_idx]
-optimal_sensitivity = tpr[optimal_idx]
-optimal_specificity = 1 - fpr[optimal_idx]
+results_afi = run_complete_logistic_analysis(
+    data=data,
+    predictor_cols=['padc'],
+    control_cols=['centro_studi'],
+    target_col='outcome_1',
+    analysis_name="padc (adjusted for Centro Studi) vs Outcome 1",
+    print_results=False
+)
 
-# Calculate metrics at optimal threshold
-y_pred_optimal = (y_pred_proba >= optimal_threshold).astype(int)
-
-performance_metrics = pl.DataFrame({
-    'Metric': [
-        'AUC',
-        'Accuracy (optimal threshold)',
-        'Sensitivity (optimal threshold)',
-        'Specificity (optimal threshold)',
-        'Precision (optimal threshold)', 
-        'F1-Score (optimal threshold)',
-        'Optimal Threshold'
-    ],
-    'Value': [
-        auc_score,
-        accuracy_score(y, y_pred_optimal),
-        recall_score(y, y_pred_optimal),
-        1 - fpr[optimal_idx],
-        precision_score(y, y_pred_optimal),
-        f1_score(y, y_pred_optimal),
-        optimal_threshold
-    ]
-})
-
-print("\n" + "="*60)
-print("ROC CURVE & PERFORMANCE METRICS")
-print("="*60)
-print(f"\nAUC Score: {auc_score:.3f}")
-print(f"Optimal Threshold (Youden's Index): {optimal_threshold:.3f}")
-print(f"Sensitivity at optimal threshold: {optimal_sensitivity:.3f}")
-print(f"Specificity at optimal threshold: {optimal_specificity:.3f}")
-
-print("\nDetailed Performance Metrics:")
-print(performance_metrics)
-
-# Confusion Matrix at optimal threshold
-print(f"\nConfusion Matrix (threshold = {optimal_threshold:.3f}):")
-cm = confusion_matrix(y, y_pred_optimal)
-print(cm)
-
-print(f"\nClassification Report (threshold = {optimal_threshold:.3f}):")
-print(classification_report(y, y_pred_optimal))
-
-# %% ROC Curve Data Table
-roc_table = pl.DataFrame({
-    'Threshold': thresholds,
-    'False_Positive_Rate': fpr,
-    'True_Positive_Rate': tpr,
-    'Specificity': 1 - fpr,
-    'Sensitivity': tpr
-})
-
-print("\n" + "="*60)
-print("ROC CURVE DATA TABLE (first 10 rows)")
-print("="*60)
-print(roc_table.head(10))
-
-# Export results to clipboard for easy copying
-print("\n" + "="*60)
-print("SUMMARY FOR EXPORT")
-print("="*60)
-summary_results = pl.DataFrame({
-    'Analysis': ['Logistic Regression: AFI (adjusted for Centro Studi) vs Outcome 1'],
-    'AUC': [auc_score],
-    'AFI_OR': [odds_ratios[0]],
-    'AFI_CI_Lower': [ci_lower[0]],
-    'AFI_CI_Upper': [ci_upper[0]],
-    'Optimal_Threshold': [optimal_threshold],
-    'Sensitivity': [optimal_sensitivity],
-    'Specificity': [optimal_specificity]
-})
-
-print(summary_results)
-if not np.isnan(ci_lower[0]):
-    print(f"\nKey Finding: AFI OR = {odds_ratios[0]:.3f} (95% CI: {ci_lower[0]:.3f}-{ci_upper[0]:.3f})")
-else:
-    print(f"\nKey Finding: AFI OR = {odds_ratios[0]:.3f} (CI: Not available)")
-print(f"AUC = {auc_score:.3f}")
-print("Note: Results are adjusted for Centro Studi as a control variable")
+# %% co
 
 
+results_afi = run_complete_logistic_analysis(
+    data=data,
+    predictor_cols=['co'],
+    control_cols=['centro_studi'],
+    target_col='outcome_1',
+    analysis_name="CO (adjusted for Centro Studi) vs Outcome 1",
+    print_results=False
+)
 
+# %% ci
 
+results_afi = run_complete_logistic_analysis(
+    data=data,
+    predictor_cols=['ci'],
+    control_cols=['centro_studi'],
+    target_col='outcome_1',
+    analysis_name="Ci (adjusted for Centro Studi) vs Outcome 1",
+    print_results=False
+)
 
+# %% sv
+
+results_afi = run_complete_logistic_analysis(
+    data=data,
+    predictor_cols=['sv'],
+    control_cols=['centro_studi'],
+    target_col='outcome_1',
+    analysis_name="sv (adjusted for Centro Studi) vs Outcome 1",
+    print_results=False
+)
 
 # %% 
+
+# %% Logistic Regression Analysis: AFI & Centro Studi vs Outcome 2
+
+# Analisi con AFI come predittore principale e Centro Studi come controllo
+results_afi = run_complete_logistic_analysis(
+    data=data,
+    predictor_cols=['afi'],
+    control_cols=['centro_studi'],
+    target_col='outcome_2',
+    analysis_name="AFI (adjusted for Centro Studi) vs Outcome 2",
+    print_results=False
+)
+
+# Odds ratios
+
+
+# # Metriche ROC
+# print(f"AUC: {results_afi['roc_metrics']['auc_score']:.3f}")
+
+# # Risultati di sintesi per export
+# print(results_afi['summary_results'])
+
+# # Tabella dati ROC
+# from tesi_marghe.utils.log_reg import create_roc_data_table
+# roc_table = create_roc_data_table(results_afi['roc_metrics'])
+# print(roc_table.head(10))
+
+# %% svr - 
+
+
+results_afi = run_complete_logistic_analysis(
+    data=data,
+    predictor_cols=['svr'],
+    control_cols=['centro_studi'],
+    target_col='outcome_2',
+    analysis_name="SVR (adjusted for Centro Studi) vs Outcome 2",
+    print_results=False
+)
+
+# %% pasc outcome 2
+
+
+results_afi = run_complete_logistic_analysis(
+    data=data,
+    predictor_cols=['pasc'],
+    control_cols=['centro_studi'],
+    target_col='outcome_2',
+    analysis_name="pasc (adjusted for Centro Studi) vs Outcome 2",
+    print_results=False
+)
+
+# %% padc outcome 2
+
+results_afi = run_complete_logistic_analysis(
+    data=data,
+    predictor_cols=['padc'],
+    control_cols=['centro_studi'],
+    target_col='outcome_2',
+    analysis_name="padc (adjusted for Centro Studi) vs Outcome 2",
+    print_results=False
+)
+
+# %% co
+results_afi = run_complete_logistic_analysis(
+    data=data,
+    predictor_cols=['co'],
+    control_cols=['centro_studi'],
+    target_col='outcome_2',
+    analysis_name="CO (adjusted for Centro Studi) vs Outcome 2",
+    print_results=False
+)
+
+# %% ci
+
+results_afi = run_complete_logistic_analysis(
+    data=data,
+    predictor_cols=['ci'],
+    control_cols=['centro_studi'],
+    target_col='outcome_2',
+    analysis_name="Ci (adjusted for Centro Studi) vs Outcome 2",
+    print_results=False
+)
+
+# %% sv
+
+results_afi = run_complete_logistic_analysis(
+    data=data,
+    predictor_cols=['sv'],
+    control_cols=['centro_studi'],
+    target_col='outcome_2',
+    analysis_name="sv (adjusted for Centro Studi) vs Outcome 2",
+    print_results=False
+)
+
+# %%  cpr
+
+results_afi = run_complete_logistic_analysis(
+    data=data,
+    predictor_cols=['cpr'],
+    control_cols=['centro_studi'],
+    target_col='outcome_2',
+    analysis_name="cpr (adjusted for Centro Studi) vs Outcome 2",
+    print_results=False
+)
+
+# %% qvo - outcome 2
+
+results_afi = run_complete_logistic_analysis(
+    data=data,
+    predictor_cols=['qvo'],
+    control_cols=['centro_studi'],
+    target_col='outcome_2',
+    analysis_name="qvo (adjusted for Centro Studi) vs Outcome 2",
+    print_results=False
+)
