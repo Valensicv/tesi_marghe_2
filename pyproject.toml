@@ -1,0 +1,30 @@
+[project]
+name = "tesi-marghe"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "valensic", email = "valensise.carlo@bcg.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "fastexcel>=0.14.0",
+    "hvplot>=0.11.3",
+    "ipykernel>=6.29.5",
+    "matplotlib>=3.10.3",
+    "nbformat>=5.10.4",
+    "pandas>=2.3.1",
+    "plotly>=6.2.0",
+    "polars>=1.31.0",
+    "polars-ds>=0.10.0",
+    "pyqt5>=5.15.11",
+    "scikit-learn>=1.7.1",
+    "seaborn>=0.13.2",
+]
+
+[project.scripts]
+tesi-marghe = "tesi_marghe:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
