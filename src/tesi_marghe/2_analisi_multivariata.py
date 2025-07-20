@@ -326,6 +326,14 @@ or_values = multivariate_or_sorted["Odds_Ratio"].to_numpy()
 ci_lower = multivariate_or_sorted["OR_CI_Lower"].to_numpy()
 ci_upper = multivariate_or_sorted["OR_CI_Upper"].to_numpy()
 variables = multivariate_or_sorted["Variable"].to_numpy()
+variables_eng = [
+    "Previous Spontaneous Deliveries",
+    "SVR",
+    "CPR",
+    "AFI",
+    "Analgesia",
+    "Pre-Pregnancy BMI",
+]
 
 # Plot error bars
 for i, (or_val, ci_l, ci_u, var) in enumerate(zip(or_values, ci_lower, ci_upper, variables)):
@@ -345,11 +353,12 @@ for i, (or_val, ci_l, ci_u, var) in enumerate(zip(or_values, ci_lower, ci_upper,
         ax.scatter(or_val, i, s=100, color="blue", marker="o")
 
     # Add variable name
-    ax.text(or_val, i + 0.1, var, ha="left", va="bottom", fontsize=10)
+    ax.text(or_val, i + 0.1, variables_eng[i], ha="left", va="bottom", fontsize=10)
 
 ax.axvline(x=1, color="red", linestyle="--", alpha=0.7, label="No effect (OR=1)")
 ax.set_yticks(y_positions)
-ax.set_yticklabels(variables)
+
+ax.set_yticklabels(variables_eng)
 ax.set_xlabel("Adjusted Odds Ratio")
 ax.set_title("Variable Importance: Multivariate Model vs Outcome 2")
 ax.grid(True, alpha=0.3, axis="x")
